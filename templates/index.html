@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>Stok Opname</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 40px; background: #fafafa; }
+    h2 { color: #2c3e50; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+    th { background-color: #007bff; color: white; }
+    button { padding: 6px 12px; margin: 5px; cursor: pointer; border-radius: 5px; border: none; }
+    button.save { background-color: #28a745; color: white; }
+    button.pdf { background-color: #17a2b8; color: white; }
+    button.delete { background-color: #dc3545; color: white; }
+  </style>
+</head>
+<body>
+  <h2>📦 Stok Opname Barang</h2>
+
+  <form id="scanForm">
+    <input type="text" id="kode" placeholder="Scan / Masukkan Kode Barang" required>
+    <button type="submit">🔍 Scan</button>
+  </form>
+
+  <table id="opnameTable">
+    <thead>
+      <tr>
+        <th>Barcode</th>
+        <th>Nama Barang</th>
+        <th>Fisik</th>
+        <th>On Hand</th>
+        <th>Keterangan</th>
+        <th>Aksi</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <button class="save" id="btnSave">💾 Simpan ke Database</button>
+  <button class="pdf" id="btnPdf">🖨️ Cetak PDF</button>
+
+  <script>
+    const tableBody = document.querySelector("#opnameTable tbody");
+    const items = [];
+
+    document.getElementById("scanForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const kode = document.getElementById("kode").value.trim();
+      if (!kode) return;
+
+      const res = await fetch("/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: "kode=" + encodeURIComponent(kode)
+      });
+
+      const data = await res.json();
+      if (data.error) return alert(data.error);
+
+      const fisik = prompt(`Masukkan jumlah fisik untuk ${data.nama}:`, data.on_hand);
+      if (fisik === null) return;
+
+      const newItem = { kode: data.kode, nama: data.nama, on_hand: data.on_hand, fisik, keterangan: "", departemen: data.departemen };
+      items.push(newItem);
+      renderTable();
+      document.getElementById("kode").value = "";
+    });
+
+    function renderTable() {
+      tableBody.innerHTML = "";
+      items.forEach((item, i) => {
+        tableBody.innerHTML += `
+          <tr>
+            <td>${item.kode}</td>
+            <td>${item.nama}</td>
+            <td>${item.fisik}</td>
+            <td>${item.on_hand}</td>
+            <td contenteditable="true" oninput="items[${i}].keterangan=this.innerText">${item.keterangan}</td>
+            <td><button class="delete" onclick="hapus(${i})">Hapus</button></td>
+          </tr>`;
+      });
+    }
+
+    function hapus(i) {
+      items.splice(i, 1);
+      renderTable();
+    }
+
+    document.getElementById("btnSave").addEventListener("click", async () => {
+      if (!items.length) return alert("Belum ada data opname.");
+      const res = await fetch("/save_opname", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items })
+      });
+      const data = await res.json();
+      alert(data.message);
+    });
+
+    document.getElementById("btnPdf").addEventListener("click", async () => {
+      if (!items.length) return alert("Belum ada data opname.");
+      const res = await fetch("/cetak_pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items })
+      });
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        window.open(url);
+      }
+    });
+  </script>
+</body>
+</html>
