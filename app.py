@@ -104,27 +104,22 @@ def save_opname():
         return jsonify({"success": False, "message": str(e)}), 500
 
 
-# =========================================
-# 🧾 CETAK PDF
-# =========================================
+from io import BytesIO
+
 @app.route('/cetak_pdf', methods=['POST'])
 def cetak_pdf():
     try:
         data = request.get_json()
-        print("📦 Data diterima:", data)  # Debugging log
         opname_items = data.get('items', [])
 
         if not opname_items:
             return jsonify({'error': 'Data opname kosong.'}), 400
 
-        # Gunakan folder temp agar cross-platform
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmpfile:
-            pdf_path = tmpfile.name
+        buffer = BytesIO()
 
         styles = getSampleStyleSheet()
         normal_style = styles["Normal"]
         title_style = styles["Title"]
-
         waktu = datetime.now().strftime("%d-%m-%Y %H:%M:%S")
 
         title = Paragraph(
@@ -134,7 +129,6 @@ def cetak_pdf():
         space = Spacer(1, 12)
 
         table_data = [["Barcode", "Nama Barang", "Fisik", "On Hand", "Selisih", "Departemen"]]
-
         for item in opname_items:
             selisih = float(item.get('fisik', 0)) - float(item.get('on_hand', 0))
             table_data.append([
@@ -159,12 +153,16 @@ def cetak_pdf():
             ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor("#F9F9F9")])
         ]))
 
-        # Bangun dokumen PDF
-        doc = SimpleDocTemplate(pdf_path, pagesize=A4)
+        doc = SimpleDocTemplate(buffer, pagesize=A4)
         doc.build([title, space, table])
+        buffer.seek(0)
 
-        print("✅ PDF berhasil dibuat:", pdf_path)
-        return send_file(pdf_path, as_attachment=True, download_name="stok_opname.pdf")
+        return send_file(
+            buffer,
+            as_attachment=True,
+            download_name="stok_opname.pdf",
+            mimetype="application/pdf"
+        )
 
     except Exception as e:
         print("❌ ERROR CETAK PDF:", e)
@@ -172,5 +170,5 @@ def cetak_pdf():
 
 
 
-# if __name__ == '__main__':
-#     app.run(debug=True)
+if __name__ == '__main__':
+    app.run(debug=True)
