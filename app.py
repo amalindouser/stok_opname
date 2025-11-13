@@ -2,11 +2,12 @@ from flask import Flask, render_template, request, jsonify, send_file
 import psycopg2
 from datetime import datetime
 import os
-from dotenv import load_dotenv  # ✅ tambahkan ini
+from dotenv import load_dotenv
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
+import tempfile
 
 app = Flask(__name__)
 
@@ -18,7 +19,6 @@ DB_URL = os.getenv("DB_URL")
 
 def get_conn():
     return psycopg2.connect(DB_URL)
-
 
 # =========================================
 # 🏠 HALAMAN UTAMA
@@ -39,7 +39,6 @@ def scan_barang():
     try:
         conn = get_conn()
         cur = conn.cursor()
-        # ✅ Bandingkan dalam bentuk teks agar 22100001 dan 22100001.0 tetap cocok
         cur.execute("""
             SELECT kode, nama, stok, satuan, departemen 
             FROM tb_barang 
@@ -49,7 +48,6 @@ def scan_barang():
         conn.close()
 
         if row:
-            # Hilangkan ".0" di tampilan
             kode_fix = str(row[0]).replace('.0', '')
             return jsonify({
                 'kode': kode_fix,
@@ -81,7 +79,7 @@ def save_opname():
 
         for item in items:
             kode_opname = f"OPN{datetime.now().strftime('%Y%m%d%H%M%S')}"
-            kode = str(item.get('kode')).replace('.0', '')  # ✅ hilangkan .0 sebelum simpan
+            kode = str(item.get('kode')).replace('.0', '')
             nama = item.get('nama')
             stok_awal = float(item.get('on_hand', 0))
             stok_real = float(item.get('fisik', 0))
@@ -105,28 +103,32 @@ def save_opname():
         print("❌ ERROR:", e)
         return jsonify({"success": False, "message": str(e)}), 500
 
+
 # =========================================
-# 🖨️ CETAK PDF
+# 🧾 CETAK PDF
 # =========================================
 @app.route('/cetak_pdf', methods=['POST'])
 def cetak_pdf():
     try:
         data = request.get_json()
+        print("📦 Data diterima:", data)  # Debugging log
         opname_items = data.get('items', [])
 
         if not opname_items:
             return jsonify({'error': 'Data opname kosong.'}), 400
 
-        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        pdf_path = os.path.join(BASE_DIR, f"stok_opname_{timestamp}.pdf")
+        # Gunakan folder temp agar cross-platform
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmpfile:
+            pdf_path = tmpfile.name
 
         styles = getSampleStyleSheet()
         normal_style = styles["Normal"]
         title_style = styles["Title"]
 
+        waktu = datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+
         title = Paragraph(
-            f"<b>LAPORAN STOK OPNAME</b><br/><font size=10>{datetime.now().strftime('%d %B %Y %H:%M:%S')}</font>",
+            f"<b>LAPORAN STOK OPNAME</b><br/><font size=10>{waktu}</font>",
             title_style
         )
         space = Spacer(1, 12)
@@ -136,7 +138,7 @@ def cetak_pdf():
         for item in opname_items:
             selisih = float(item.get('fisik', 0)) - float(item.get('on_hand', 0))
             table_data.append([
-                str(item.get('kode', '')).replace('.0', ''),  # ✅ tampilkan tanpa .0
+                str(item.get('kode', '')).replace('.0', ''),
                 Paragraph(item.get('nama', ''), normal_style),
                 str(item.get('fisik', '')),
                 str(item.get('on_hand', '')),
@@ -157,13 +159,17 @@ def cetak_pdf():
             ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor("#F9F9F9")])
         ]))
 
+        # Bangun dokumen PDF
         doc = SimpleDocTemplate(pdf_path, pagesize=A4)
         doc.build([title, space, table])
 
-        return send_file(pdf_path, as_attachment=True)
+        print("✅ PDF berhasil dibuat:", pdf_path)
+        return send_file(pdf_path, as_attachment=True, download_name="stok_opname.pdf")
 
     except Exception as e:
+        print("❌ ERROR CETAK PDF:", e)
         return jsonify({'error': str(e)}), 500
+
 
 
 # if __name__ == '__main__':
